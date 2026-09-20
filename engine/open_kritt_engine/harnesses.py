@@ -203,7 +203,7 @@ CLAUDE_MODEL_ALIASES = {
     "opus-4.8": "claude-opus-4-8",
 }
 DEFAULT_MODEL_PROVIDER = "openrouter"
-MODEL_PROVIDERS = {"codex", "claude", "openrouter", "xai", "deepseek"}
+MODEL_PROVIDERS = {"codex", "claude", "openrouter", "xai", "deepseek", "pi"}
 GROK_BUILD_THINKING_EFFORTS = frozenset({"low", "medium", "high", "xhigh"})
 DEFAULT_GROK_BUILD_MODEL = "grok-4.6"
 GROK_BUILD_RUNTIME_ENV = {
@@ -2394,6 +2394,125 @@ class GrokBuildHarness:
                 prompt_path.unlink(missing_ok=True)
 
 
+class PiAgentHarness:
+    name = "pi"
+
+    def __init__(
+        self,
+        timeout_seconds: int,
+        model_provider: str | None = None,
+        runner_memory_mb: int = 0,
+        runner_memory_reservation_mb: int = 0,
+    ):
+        self.timeout_seconds = timeout_seconds
+        self.model_provider = model_provider
+        self.runner_memory_mb = max(0, int(runner_memory_mb))
+        self.runner_memory_reservation_mb = max(0, int(runner_memory_reservation_mb))
+
+    def run(
+        self,
+        *,
+        prompt: str,
+        schema: dict[str, Any],
+        repo_dir: str,
+        model: str,
+        thinking_effort: str | None = None,
+        env: dict[str, str] | None = None,
+        allow_tools: bool = True,
+        runner_image: str | None = None,
+    ) -> HarnessResult:
+        # TODO: adapt the command below to the pi agent's real CLI/API protocol.
+        # This mirrors the Grok Build harness as a placeholder. pi's actual flags,
+        # prompt/schema passing, and output format must be filled in here.
+        actual_env = dict(env if env is not None else _base_env())
+        if normalize_model_provider(self.model_provider) == "pi":
+            actual_env.setdefault("PI_API_KEY", os.getenv("PI_API_KEY", ""))
+        executable = _pi_executable(actual_env)
+        model_name = (model or "pi-default").strip() or "pi-default"
+        workspace = Path(repo_dir)
+        workspace.mkdir(parents=True, exist_ok=True)
+        prompt_dir = Path(actual_env.get("HOME") or workspace)
+        prompt_dir.mkdir(parents=True, exist_ok=True)
+        suffix = f"{os.getpid()}.{time.time_ns()}"
+        prompt_path = prompt_dir / f".open-kritt-pi-prompt.{suffix}.txt"
+        prompt_path.write_text(prompt, encoding="utf-8")
+        prompt_path.chmod(0o600)
+        schema_json = json.dumps(_grok_json_schema(schema))
+        try:
+            cmd = [
+                executable,
+                "--prompt-file",
+                str(prompt_path),
+                "--output-format",
+                "json",
+                "--json-schema",
+                schema_json,
+                "--model",
+                model_name,
+                "--cwd",
+                str(workspace),
+            ]
+            effort = (thinking_effort or "").strip().lower()
+            if effort in GROK_BUILD_THINKING_EFFORTS:
+                cmd.extend(["--reasoning-effort", effort])
+            if allow_tools:
+                cmd.extend(["--always-approve", "--permission-mode", "bypassPermissions"])
+            else:
+                cmd.extend(["--permission-mode", "dontAsk", "--tools", ""])
+            run_cmd = (
+                _scan_docker_command(
+                    cmd,
+                    repo_dir,
+                    actual_env,
+                    runner_image=runner_image,
+                    memory_limit_mb=self.runner_memory_mb,
+                    memory_reservation_mb=self.runner_memory_reservation_mb,
+                )
+                if allow_tools
+                else cmd
+            )
+            proc = _run_process(run_cmd, "", repo_dir, self.timeout_seconds, env=actual_env)
+            process_output = _process_output(
+                proc,
+                files={"pi-prompt.txt": prompt, "pi-schema.json": schema_json},
+            )
+            try:
+                payload, usage = _extract_json_from_grok_json(proc.stdout)
+            except HarnessError as exc:
+                raise _harness_error_with_output(exc, process_output) from exc
+            except json.JSONDecodeError as exc:
+                raise HarnessError(
+                    "Pi agent did not return a usable structured response.",
+                    output=process_output,
+                    code="invalid_output",
+                    harness="pi",
+                ) from exc
+            if usage is None and thinking_effort:
+                usage = {"thinking_effort": thinking_effort}
+            elif usage is not None and thinking_effort:
+                usage = {**usage, "thinking_effort": thinking_effort}
+            if normalize_model_provider(self.model_provider) == "pi":
+                usage = {**(usage or {}), "model_provider": "pi", "pi_model": model_name}
+            return HarnessResult(payload=payload, usage=usage, output=process_output)
+        finally:
+            with suppress(OSError):
+                prompt_path.unlink(missing_ok=True)
+
+
+def _pi_executable(env: dict[str, str]) -> str:
+    configured = env.get("PI_BIN") or os.getenv("PI_BIN")
+    if configured:
+        return configured
+    found = shutil.which("pi", path=env.get("PATH"))
+    if found:
+        return found
+    raise HarnessError(
+        "pi agent CLI is not available; set PI_BIN to the pi agent executable path.",
+        code="start_failed",
+        harness="pi",
+    )
+
+
 def normalize_harness_name(name: str) -> str:
     if name == "codex-cli":
         return "codex"
@@ -2401,6 +2520,8 @@ def normalize_harness_name(name: str) -> str:
         return "cursor"
     if name == "grok":
         return "grok-build"
+    if name in {"pi-agent", "pi-cli"}:
+        return "pi"
     return name
 
 
@@ -2447,6 +2568,13 @@ def harness_for(
         return GrokBuildHarness(
             timeout_seconds,
             provider,
+            runner_memory_mb=runner_memory_mb,
+            runner_memory_reservation_mb=runner_memory_reservation_mb,
+        )
+    if normalized == "pi":
+        return PiAgentHarness(
+            timeout_seconds,
+            model_provider=provider,
             runner_memory_mb=runner_memory_mb,
             runner_memory_reservation_mb=runner_memory_reservation_mb,
         )

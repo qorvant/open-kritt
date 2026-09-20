@@ -1980,6 +1980,7 @@ const ACTIVE_JOB_HARNESS_LABELS = Object.freeze({
   'claude-code': 'Claude Code',
   'grok-build': 'Grok Build',
   droid: 'Factory Droid',
+  pi: 'Pi Agent',
 });
 
 function activeJobHarnessLabel(value) {

@@ -1,4 +1,4 @@
-export const MODEL_PROVIDER_IDS = ['codex', 'claude', 'openrouter', 'xai', 'deepseek'];
+export const MODEL_PROVIDER_IDS = ['codex', 'claude', 'openrouter', 'xai', 'deepseek', 'pi'];
 export const MODEL_CATALOG_STATUSES = ['ready', 'loading', 'unavailable'];
 const SAFE_MODEL_NOTE_URLS = new Set(['https://chatgpt.com/cyber']);
 
@@ -10,6 +10,7 @@ const PROVIDER_HARNESSES = {
   openrouter: ['claude-code', 'codex'],
   xai: ['grok-build'],
   deepseek: ['codex'],
+  pi: ['pi'],
 };
 
 const PROVIDER_DEFAULT_MODELS = {
@@ -18,6 +19,7 @@ const PROVIDER_DEFAULT_MODELS = {
   openrouter: 'z-ai/glm-5.2',
   xai: 'grok-4.6',
   deepseek: 'deepseek-flash',
+  pi: 'pi-default',
 };
 
 const PROVIDER_THINKING_EFFORTS = {
@@ -26,12 +28,14 @@ const PROVIDER_THINKING_EFFORTS = {
   openrouter: ['default', 'low', 'medium', 'high', 'xhigh', 'max'],
   xai: ['low', 'medium', 'high', 'xhigh'],
   deepseek: ['low', 'high', 'max'],
+  pi: ['default', 'low', 'medium', 'high', 'xhigh'],
 };
 
 const HARNESS_THINKING_EFFORTS = {
   codex: ['default', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra'],
   'claude-code': ['default', 'low', 'medium', 'high', 'xhigh', 'max'],
   'grok-build': ['low', 'medium', 'high', 'xhigh'],
+  pi: ['default', 'low', 'medium', 'high', 'xhigh'],
 };
 
 function normalizedProviderId(provider) {
