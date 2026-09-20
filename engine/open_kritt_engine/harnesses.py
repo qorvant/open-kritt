@@ -2394,6 +2394,17 @@ class GrokBuildHarness:
                 prompt_path.unlink(missing_ok=True)
 
 
+_PI_THINKING_LEVELS = {
+    "default": None,
+    "low": "low",
+    "medium": "medium",
+    "high": "high",
+    "xhigh": "xhigh",
+    "max": "max",
+    "ultra": "max",
+}
+
+
 class PiAgentHarness:
     name = "pi"
 
@@ -2421,82 +2432,54 @@ class PiAgentHarness:
         allow_tools: bool = True,
         runner_image: str | None = None,
     ) -> HarnessResult:
-        # TODO: adapt the command below to the pi agent's real CLI/API protocol.
-        # This mirrors the Grok Build harness as a placeholder. pi's actual flags,
-        # prompt/schema passing, and output format must be filled in here.
+        # pi is the open-source terminal coding agent published by earendil-works
+        # (executable `pi`). It runs against the current working directory, so we
+        # pass repo_dir as cwd. Non-interactive runs use `pi -p "<prompt>"`. There is
+        # no --json-schema flag, so the caller embeds the schema in the prompt (as with
+        # Claude Code) and we parse the JSON object from stdout.
         actual_env = dict(env if env is not None else _base_env())
-        if normalize_model_provider(self.model_provider) == "pi":
-            actual_env.setdefault("PI_API_KEY", os.getenv("PI_API_KEY", ""))
         executable = _pi_executable(actual_env)
-        model_name = (model or "pi-default").strip() or "pi-default"
-        workspace = Path(repo_dir)
-        workspace.mkdir(parents=True, exist_ok=True)
-        prompt_dir = Path(actual_env.get("HOME") or workspace)
-        prompt_dir.mkdir(parents=True, exist_ok=True)
-        suffix = f"{os.getpid()}.{time.time_ns()}"
-        prompt_path = prompt_dir / f".open-kritt-pi-prompt.{suffix}.txt"
-        prompt_path.write_text(prompt, encoding="utf-8")
-        prompt_path.chmod(0o600)
-        schema_json = json.dumps(_grok_json_schema(schema))
+        model_name = (model or "").strip()
+        cmd = [executable, "-p", prompt]
+        if model_name:
+            cmd.extend(["--model", model_name])
+        effort = (thinking_effort or "").strip().lower()
+        pi_effort = _PI_THINKING_LEVELS.get(effort)
+        if pi_effort:
+            cmd.extend(["--thinking", pi_effort])
+        if allow_tools:
+            # Trust project-local .pi/settings.json, extensions, and skills for the scan.
+            cmd.append("--approve")
+        else:
+            # Read-only tool set when the scan must not mutate the repository.
+            cmd.extend(["--tools", "read,grep,find,ls"])
+        api_key = actual_env.get("PI_API_KEY") or os.getenv("PI_API_KEY")
+        if api_key:
+            cmd.extend(["--api-key", api_key])
+        # Keep pi from phoning home (version checks / telemetry) and avoid ANSI noise.
+        actual_env.setdefault("PI_OFFLINE", "1")
+        actual_env.setdefault("PI_SKIP_VERSION_CHECK", "1")
+        actual_env.setdefault("NO_COLOR", "1")
+        actual_env.setdefault("TERM", "dumb")
+        proc = _run_process(cmd, "", repo_dir, self.timeout_seconds, env=actual_env)
+        process_output = _process_output(proc)
         try:
-            cmd = [
-                executable,
-                "--prompt-file",
-                str(prompt_path),
-                "--output-format",
-                "json",
-                "--json-schema",
-                schema_json,
-                "--model",
-                model_name,
-                "--cwd",
-                str(workspace),
-            ]
-            effort = (thinking_effort or "").strip().lower()
-            if effort in GROK_BUILD_THINKING_EFFORTS:
-                cmd.extend(["--reasoning-effort", effort])
-            if allow_tools:
-                cmd.extend(["--always-approve", "--permission-mode", "bypassPermissions"])
-            else:
-                cmd.extend(["--permission-mode", "dontAsk", "--tools", ""])
-            run_cmd = (
-                _scan_docker_command(
-                    cmd,
-                    repo_dir,
-                    actual_env,
-                    runner_image=runner_image,
-                    memory_limit_mb=self.runner_memory_mb,
-                    memory_reservation_mb=self.runner_memory_reservation_mb,
-                )
-                if allow_tools
-                else cmd
-            )
-            proc = _run_process(run_cmd, "", repo_dir, self.timeout_seconds, env=actual_env)
-            process_output = _process_output(
-                proc,
-                files={"pi-prompt.txt": prompt, "pi-schema.json": schema_json},
-            )
-            try:
-                payload, usage = _extract_json_from_grok_json(proc.stdout)
-            except HarnessError as exc:
-                raise _harness_error_with_output(exc, process_output) from exc
-            except json.JSONDecodeError as exc:
-                raise HarnessError(
-                    "Pi agent did not return a usable structured response.",
-                    output=process_output,
-                    code="invalid_output",
-                    harness="pi",
-                ) from exc
-            if usage is None and thinking_effort:
-                usage = {"thinking_effort": thinking_effort}
-            elif usage is not None and thinking_effort:
-                usage = {**usage, "thinking_effort": thinking_effort}
-            if normalize_model_provider(self.model_provider) == "pi":
-                usage = {**(usage or {}), "model_provider": "pi", "pi_model": model_name}
-            return HarnessResult(payload=payload, usage=usage, output=process_output)
-        finally:
-            with suppress(OSError):
-                prompt_path.unlink(missing_ok=True)
+            payload = _parse_json_text(proc.stdout, schema)
+        except (HarnessError, json.JSONDecodeError) as exc:
+            raise HarnessError(
+                "Pi agent did not return a usable structured response.",
+                output=process_output,
+                code="invalid_output",
+                harness="pi",
+            ) from exc
+        usage = None
+        if thinking_effort:
+            usage = {"thinking_effort": thinking_effort}
+        if model_name:
+            usage = {**(usage or {}), "model": model_name}
+        if normalize_model_provider(self.model_provider) == "pi":
+            usage = {**(usage or {}), "model_provider": "pi"}
+        return HarnessResult(payload=payload, usage=usage, output=process_output)
 
 
 def _pi_executable(env: dict[str, str]) -> str:
