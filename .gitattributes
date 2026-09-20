@@ -1,0 +1,11 @@
+# Normalize all text files to LF line endings.
+# Required because the `kritt` launcher and shell scripts run under Linux/WSL and
+# inside Docker containers, where a trailing CR in a shebang (`sh\r`) breaks execution.
+* text=auto eol=lf
+
+# Explicit, non-negotiable LF for files executed directly by Linux shells / buildkit.
+*.sh text eol=lf
+kritt text eol=lf
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+*.sql text eol=lf
