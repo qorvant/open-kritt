@@ -2461,7 +2461,15 @@ class PiAgentHarness:
         actual_env.setdefault("PI_SKIP_VERSION_CHECK", "1")
         actual_env.setdefault("NO_COLOR", "1")
         actual_env.setdefault("TERM", "dumb")
-        proc = _run_process(cmd, "", repo_dir, self.timeout_seconds, env=actual_env)
+        run_cmd = _scan_docker_command(
+            cmd,
+            repo_dir,
+            actual_env,
+            runner_image=runner_image,
+            memory_limit_mb=self.runner_memory_mb,
+            memory_reservation_mb=self.runner_memory_reservation_mb,
+        )
+        proc = _run_process(run_cmd, "", repo_dir, self.timeout_seconds, env=actual_env)
         process_output = _process_output(proc)
         try:
             payload = _parse_json_text(proc.stdout, schema)
