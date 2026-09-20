@@ -75,6 +75,11 @@ export const ENVIRONMENT_ITEMS = [
     info: 'Used by the Grok Build harness via the xAI provider.',
   },
   {
+    key: 'PI_API_KEY',
+    label: 'pi API key',
+    info: 'Used by the Pi harness. Provide the API key for the provider selected with --model: an Anthropic key for Claude models, an OpenAI key for GPT models, a Google key for Gemini models, and so on.',
+  },
+  {
     key: 'GITHUB_TOKEN',
     label: 'GitHub token',
     info: 'Optional. It lets the engine clone private GitHub repositories and dependencies. Public and local scans do not need it.',

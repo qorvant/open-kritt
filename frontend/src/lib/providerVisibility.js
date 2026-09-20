@@ -4,6 +4,7 @@ export const PROVIDER_LABELS = {
   openrouter: 'OpenRouter',
   xai: 'xAI',
   deepseek: 'DeepSeek',
+  pi: 'Pi',
 };
 
 export const DEFAULT_VISIBLE_PROVIDERS = Object.keys(PROVIDER_LABELS);
